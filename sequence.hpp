@@ -466,7 +466,7 @@ public:
     ~Seq() = default;
 
     Seq &operator=(const Seq &x) { return *this = Seq(x); }
-    Seq &operator=(Seq &&x) {
+    Seq &operator=(Seq &&x) noexcept {
       set_root(std::move(x.root));
       return *this;
     }
@@ -482,22 +482,34 @@ public:
     }
 
     IterMut begin() noexcept {
-      splay_nth(root, 0);
-      return root.get();
+      if (empty()) {
+        return end();
+      } else {
+        splay_nth(root, 0);
+        return root.get();
+      }
     }
     Iter begin() const noexcept { return remove_const().begin(); }
     IterMut end() noexcept { return this; }
     Iter end() const noexcept { return remove_const().end(); }
 
-    reverse_iterator rbegin() noexcept { return end(); }
-    const_reverse_iterator rbegin() const noexcept { return end(); }
-    reverse_iterator rend() noexcept { return begin(); }
-    const_reverse_iterator rend() const noexcept { return begin(); }
+    reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+    const_reverse_iterator rbegin() const noexcept {
+      return const_reverse_iterator(end());
+    }
+    reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+    const_reverse_iterator rend() const noexcept {
+      return const_reverse_iterator(begin());
+    }
 
     Iter cbegin() const noexcept { return begin(); }
     Iter cend() const noexcept { return end(); }
-    const_reverse_iterator crbegin() const noexcept { return cend(); }
-    const_reverse_iterator crend() const noexcept { return cbegin(); }
+    const_reverse_iterator crbegin() const noexcept {
+      return const_reverse_iterator(cend());
+    }
+    const_reverse_iterator crend() const noexcept {
+      return const_reverse_iterator(cbegin());
+    }
 
     IterMut nth_iterator(usize n) {
       if (n == size()) {
@@ -585,7 +597,8 @@ public:
 
     IterMut erase(Iter position) { return position.to_mut().erase(); }
     IterMut erase(Iter first, Iter last) {
-      return erase(first.to_mut(), last.to_mut());
+      (void)erase_help(first.to_mut(), last.to_mut());
+      return last.to_mut();
     }
     void clear() { *this = Seq(); }
 
@@ -601,17 +614,21 @@ public:
 
     void swap(Seq &x) noexcept { std::swap(*this, x); }
 
-    void splice(Iter position, Seq &x) { position.splice(x); }
-    void splice(Iter position, Seq &&x) { position.splice(std::move(x)); }
-    void splice(Iter position, Seq &x, Iter i) { position.splice(x, i); }
+    void splice(Iter position, Seq &x) { position.to_mut().splice(x); }
+    void splice(Iter position, Seq &&x) {
+      position.to_mut().splice(std::move(x));
+    }
+    void splice(Iter position, Seq &x, Iter i) {
+      position.to_mut().splice(x, i);
+    }
     void splice(Iter position, Seq &&x, Iter i) {
-      position.splice(std::move(x), i);
+      position.to_mut().splice(std::move(x), i);
     }
     void splice(Iter position, Seq &x, Iter first, Iter last) {
-      position.splice(x, first, last);
+      position.to_mut().splice(x, first, last);
     }
     void splice(Iter position, Seq &&x, Iter first, Iter last) {
-      position.splice(std::move(x), first, last);
+      position.to_mut().splice(std::move(x), first, last);
     }
     void reverse() noexcept { sequence_impl::reverse(root.get()); }
   };
@@ -675,6 +692,8 @@ private:
   class IterMut {
     friend sequence_impl;
 
+    using isize = isize;
+
     NodeBase *ptr;
 
     IterMut(NodeBase *ptr) : ptr(ptr) {}
@@ -685,6 +704,8 @@ private:
     using pointer = T *;
     using reference = T &;
     using iterator_category = std::random_access_iterator_tag;
+
+    IterMut() : ptr(nullptr) {}
 
     bool is_initialized() const { return ptr; }
 
@@ -709,7 +730,7 @@ private:
       }
     }
 
-    IterMut insert_help(std::unique_ptr<Node> &&x) {
+    IterMut insert_help(std::unique_ptr<Node> &&x) const {
       if (x) {
         Node *ret = x.get();
         splay_nth(x, 0);
@@ -758,22 +779,27 @@ private:
         splay_nth(right, 0);
         set_child<false>(right.get(), std::move(left));
         right->fix();
-        Node *ret = right.get();
+        ret = right.get();
         s->set_root(std::move(right));
       } else {
         s->set_root(std::move(left));
         ret = s;
       }
-      return {ret, std::move(mid)};
+      return {IterMut(ret), std::move(mid)};
     }
 
     IterMut erase() { return erase_help().first; }
 
-    void splice(Seq &x) { insert_help(std::move(x)); }
-    void splice(Seq &&x) { insert_help(std::move(x)); }
-    void splice(IterMut i) { insert_help(i.erase_help().second); }
-    void splice(IterMut first, IterMut last) {
-      insert_help(erase_help(first, last));
+    void splice(Seq &x) const { insert_help(std::move(x.root)); }
+    void splice(Seq &&x) const { insert_help(std::move(x.root)); }
+    void splice(Seq &x, Iter i) const { splice(i.to_mut()); }
+    void splice(Seq &&x, Iter i) const { splice(i.to_mut()); }
+    void splice(IterMut i) const { insert_help(i.erase_help().second); }
+    void splice(Seq &x, Iter first, Iter last) const {
+      splice(first.to_mut(), last.to_mut());
+    }
+    void splice(IterMut first, IterMut last) const {
+      insert_help(sequence_impl::erase_help(first, last));
     }
 
     T &operator*() const { return ptr->to_node()->value; }
@@ -795,7 +821,6 @@ private:
     IterMut &operator-=(isize n) { return *this += -n; }
 
     friend IterMut operator+(const IterMut &it, isize n) {
-      using isize = std::ptrdiff_t;
       return it.from().nth_iterator(isize(it.position()) + n);
     }
     friend IterMut operator+(isize n, const IterMut &it) { return it + n; }
@@ -829,6 +854,8 @@ private:
   class Iter : private IterMut {
     friend sequence_impl;
 
+    using isize = isize;
+
     using IterMut::ptr;
 
     IterMut to_mut() const { return ptr; }
@@ -843,6 +870,10 @@ private:
     using iterator_category = std::random_access_iterator_tag;
 
     Iter() = default;
+    Iter(IterMut it) : IterMut(it) {}
+
+    using IterMut::is_end;
+    using IterMut::is_initialized;
 
     const Seq &from() const { return to_mut().from(); }
 
@@ -967,16 +998,16 @@ private:
     }
   }
 
-  static std::unique_ptr<Node> copy_tree(Node *ptr, SeqBuilder &b) {
+  static void copy_tree(Node *ptr, SeqBuilder &b) {
     if (ptr) {
       if (ptr->reversed) {
-        copy_tree(ptr->right.get(), b);
+        copy_tree(ptr->right().get(), b);
         b.add(ptr->value);
-        copy_tree(ptr->left.get(), b);
+        copy_tree(ptr->left().get(), b);
       } else {
-        copy_tree(ptr->left.get(), b);
+        copy_tree(ptr->left().get(), b);
         b.add(ptr->value);
-        copy_tree(ptr->right.get(), b);
+        copy_tree(ptr->right().get(), b);
       }
     }
   }
