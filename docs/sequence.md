@@ -7,7 +7,7 @@ class sequence;
 
 sequence は列を取り扱うデータ構造の実装です。
 内部は splay tree で実装されており、ランダムアクセスなど様々な操作が
-${\rm amortized} \ O(\log N)$ の時間計算量で実行可能です。
+償却 O(log N) の時間計算量で実行可能です。
 
 
 ### テンプレート引数
@@ -28,8 +28,8 @@ ${\rm amortized} \ O(\log N)$ の時間計算量で実行可能です。
 |const_iterator|[const_iterator](sequence/const_iterator.md)|
 |size_type|std::size_t|
 |difference_type|std::ptrdiff_t|
-|reverse_iterator|std::reverse_iterator<iterator>|
-|const_reverse_iterator|std::reverse_iterator<const_iterator>|
+|reverse_iterator|std::reverse_iterator\<iterator\>|
+|const_reverse_iterator|std::reverse_iterator\<const_iterator\>|
 
 
 ### メンバ関数
