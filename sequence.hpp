@@ -112,9 +112,9 @@ public:
 
     iterator();
 
-    bool is_initialized() const;
+    bool is_singular() const;
 
-    bool is_end() const;
+    bool is_past_the_end() const;
 
     Seq &from() const;
 
@@ -169,6 +169,10 @@ public:
     using iterator_category = std::random_access_iterator_tag;
 
     const_iterator();
+
+    bool is_singular() const;
+
+    bool is_past_the_end() const;
 
     const Seq &from() const;
 
@@ -698,43 +702,11 @@ private:
 
     IterMut(NodeBase *ptr) : ptr(ptr) {}
 
-  public:
-    using difference_type = isize;
-    using value_type = T;
-    using pointer = T *;
-    using reference = T &;
-    using iterator_category = std::random_access_iterator_tag;
-
-    IterMut() : ptr(nullptr) {}
-
-    bool is_initialized() const { return ptr; }
-
-    bool is_end() const { return ptr->is_end(); }
-
-    Seq &from() const {
-      NodeBase *p = ptr;
-      if (!is_end()) {
-        splay(p->to_node());
-        p = p->parent;
-      }
-      return *p->to_seq();
-    }
-
-    usize position() const {
-      if (is_end()) {
-        return ptr->to_seq()->size();
-      } else {
-        Node *node = ptr->to_node();
-        splay(node);
-        return size_(node->left().get());
-      }
-    }
-
     IterMut insert_help(std::unique_ptr<Node> &&x) const {
       if (x) {
         Node *ret = x.get();
         splay_nth(x, 0);
-        if (is_end()) {
+        if (is_past_the_end()) {
           Seq *s = ptr->to_seq();
           set_child<false>(x.get(), std::move(s->root));
           x->fix();
@@ -751,20 +723,6 @@ private:
       } else {
         return *this;
       }
-    }
-
-    template <class... Args> IterMut emplace(Args &&... args) const {
-      return insert_help(std::make_unique<Node>(std::forward<Args>(args)...));
-    }
-    IterMut insert(const T &x) const { return emplace(x); }
-    IterMut insert(T &&x) const { return emplace(std::move(x)); }
-    IterMut insert(usize n, const T &x) { return insert_help(Seq(n, x).root); }
-    template <class InputIterator>
-    IterMut insert(InputIterator first, IterCheck<InputIterator> last) {
-      return insert_help(Seq(first, last).root);
-    }
-    IterMut insert(std::initializer_list<T> il) {
-      return insert_help(Seq(il).root);
     }
 
     std::pair<IterMut, std::unique_ptr<Node>> erase_help() {
@@ -786,6 +744,51 @@ private:
         ret = s;
       }
       return {IterMut(ret), std::move(mid)};
+    }
+
+  public:
+    using difference_type = isize;
+    using value_type = T;
+    using pointer = T *;
+    using reference = T &;
+    using iterator_category = std::random_access_iterator_tag;
+
+    IterMut() : ptr(nullptr) {}
+
+    bool is_singular() const { return !ptr; }
+    bool is_past_the_end() const { return ptr->is_end(); }
+
+    Seq &from() const {
+      NodeBase *p = ptr;
+      if (!is_past_the_end()) {
+        splay(p->to_node());
+        p = p->parent;
+      }
+      return *p->to_seq();
+    }
+
+    usize position() const {
+      if (is_past_the_end()) {
+        return ptr->to_seq()->size();
+      } else {
+        Node *node = ptr->to_node();
+        splay(node);
+        return size_(node->left().get());
+      }
+    }
+
+    template <class... Args> IterMut emplace(Args &&... args) const {
+      return insert_help(std::make_unique<Node>(std::forward<Args>(args)...));
+    }
+    IterMut insert(const T &x) const { return emplace(x); }
+    IterMut insert(T &&x) const { return emplace(std::move(x)); }
+    IterMut insert(usize n, const T &x) { return insert_help(Seq(n, x).root); }
+    template <class InputIterator>
+    IterMut insert(InputIterator first, IterCheck<InputIterator> last) {
+      return insert_help(Seq(first, last).root);
+    }
+    IterMut insert(std::initializer_list<T> il) {
+      return insert_help(Seq(il).root);
     }
 
     IterMut erase() { return erase_help().first; }
@@ -851,14 +854,15 @@ private:
     }
   };
 
-  class Iter : private IterMut {
+  class Iter {
     friend sequence_impl;
 
     using isize = isize;
 
-    using IterMut::ptr;
+    IterMut ptr;
 
-    IterMut to_mut() const { return ptr; }
+    IterMut &to_mut() { return ptr; }
+    const IterMut &to_mut() const { return ptr; }
 
     Iter(Node *ptr) : IterMut(ptr) {}
 
@@ -869,62 +873,63 @@ private:
     using reference = const T &;
     using iterator_category = std::random_access_iterator_tag;
 
-    Iter() = default;
-    Iter(IterMut it) : IterMut(it) {}
+    constexpr Iter() noexcept : ptr() {}
+    Iter(IterMut it) : ptr(it) {}
 
-    using IterMut::is_end;
-    using IterMut::is_initialized;
+    bool is_singular() const { return ptr.is_singular(); }
+    bool is_past_the_end() const { return ptr.is_past_the_end(); }
 
-    const Seq &from() const { return to_mut().from(); }
+    const Seq &from() const { return ptr.from(); }
+    usize position() const { return ptr.position(); }
 
-    using IterMut::position;
-
-    const T &operator*() const { return ptr->to_node()->value; }
-    const T *operator->() const { return &ptr->to_node()->value; }
-    const T &operator[](isize n) const { return *(*this + n); }
-    Iter &operator++() { return *this += 1; }
-    Iter operator++(int) {
-      auto ret = *this;
-      ++(*this);
-      return ret;
+    const T &operator*() const { return ptr.operator*(); }
+    const T *operator->() const { return ptr.operator->(); }
+    const T &operator[](isize n) const { return ptr.operator[](n); }
+    Iter &operator++() {
+      ++ptr;
+      return *this;
     }
-    Iter &operator--() { return *this -= 1; }
-    Iter operator--(int) {
-      auto ret = *this;
-      --(*this);
-      return ret;
+    Iter operator++(int) { return Iter(ptr++); }
+    Iter &operator--() {
+      --ptr;
+      return *this;
     }
-    Iter &operator+=(isize n) { return *this = *this + n; }
-    Iter &operator-=(isize n) { return *this += -n; }
+    Iter operator--(int) { return Iter(ptr--); }
+    Iter &operator+=(isize n) {
+      ptr += n;
+      return *this;
+    }
+    Iter &operator-=(isize n) {
+      ptr -= n;
+      return *this;
+    }
 
-    friend Iter operator+(const Iter &it, isize n) {
-      return it.from().nth_iterator(isize(it.position()) + n);
-    }
-    friend Iter operator+(isize n, const Iter &it) { return it + n; }
-    friend Iter operator-(const Iter &it, isize n) { return it + -n; }
+    friend Iter operator+(const Iter &it, isize n) { return Iter(it.ptr + n); }
+    friend Iter operator+(isize n, const Iter &it) { return Iter(n + it.ptr); }
+    friend Iter operator-(const Iter &it, isize n) { return Iter(it.ptr - n); }
     friend isize operator-(const Iter &lhs, const Iter &rhs) {
-      return isize(lhs.position()) - isize(rhs.position());
+      return lhs.ptr - rhs.ptr;
     }
 
-    friend void swap(Iter &lhs, Iter &rhs) { std::swap(lhs, rhs); }
+    friend void swap(Iter &lhs, Iter &rhs) { lhs.ptr.swap(rhs.ptr); }
 
     friend bool operator==(const Iter &lhs, const Iter &rhs) {
       return lhs.ptr == rhs.ptr;
     }
     friend bool operator!=(const Iter &lhs, const Iter &rhs) {
-      return !(lhs == rhs);
+      return lhs.ptr != rhs.ptr;
     }
     friend bool operator<(const Iter &lhs, const Iter &rhs) {
-      return rhs - lhs > 0;
+      return lhs.ptr <= rhs.ptr;
     }
     friend bool operator<=(const Iter &lhs, const Iter &rhs) {
-      return !(rhs < lhs);
+      return lhs.ptr <= rhs.ptr;
     }
     friend bool operator>(const Iter &lhs, const Iter &rhs) {
-      return rhs < lhs;
+      return lhs.ptr > rhs.ptr;
     }
     friend bool operator>=(const Iter &lhs, const Iter &rhs) {
-      return !(lhs < rhs);
+      return lhs.ptr >= rhs.ptr;
     }
   };
 
@@ -957,7 +962,7 @@ private:
   static std::unique_ptr<Node> erase_help(IterMut first, IterMut last) {
     std::unique_ptr<Node> ret;
     if (first != last) {
-      if (last.is_end()) {
+      if (last.is_past_the_end()) {
         Seq *s = last.ptr->to_seq();
         Node *fn = first.ptr->to_node();
         splay(fn);
